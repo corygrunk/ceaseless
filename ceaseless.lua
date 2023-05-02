@@ -2,35 +2,34 @@
 --- shameless recreation of the OP1
 --- endless sequencer
 
--- enc1: TODO: Speed
--- enc2: TODO: Pattern
--- enc3: TODO: Hold / Direction (Shift)
--- key2: ->
--- key3: Create | TODO: Blank notes and note lengths
+-- enc1: Speed | TODO: Add triplets
+-- enc2: TODO: Patterns
+-- enc3: Hold / Direction (Shift)
+-- key2: -> Add blank notes to pattern
+-- key3: Create | TODO: note lengths
 
--- crow:
--- out 1:
--- out 2:
--- out 3: 
--- out 4: 
 
 engine.name = 'PolyPerc'
 s = require 'sequins'
 m = midi.connect() -- if no argument is provided, we default to port 1
 
+
 seq = s{0}
 shift_func = false
-enc1_val = 5
-enc3_shift_val = 1
+enc1_div = 5
+enc1_div_max_entries = 6
+enc3_direction = 1
+enc3_direction_max_entries = 3
 div = {1/32,1/16,1/8,1/4,1/2,1}
 div_names = {'1/32','1/16','1/8','1/4','1/2','1'}
 note_name = '--'
 offset = 60 -- this is the main note
 playing = false
-direction = {'→','←','~'}
+direction = {'FWD','REV','RND'}
 counter = 0
 counter_create = 0
 mode = 'play' -- 'create' or 'play' or 'hold'
+prev_mode = mode
 new_seq = false
 temp_table = {}
 note_on_tracker = 0 -- using to track keypresses
@@ -59,7 +58,7 @@ end
 function clock_tick()
   while true do
     clock.tempo = tempo
-    clock.sync(div[enc1_val])
+    clock.sync(div[enc1_div])
     if playing then
       move_seq()
     end 
@@ -67,14 +66,25 @@ function clock_tick()
 end
 
 function move_seq()
+  if enc3_direction == 1 then seq:step(1) end -- forward
+  if enc3_direction == 2 then seq:step(-1) end -- reverse
   local note = seq()
+  local random_note_ix = math.random(1,seq.length)
+  if enc3_direction == 3 then -- random
+    note = seq[random_note_ix] 
+  end
+
   if note ~= 0 then
     play_notes(note + offset - 60)
     note_name = note + offset - 60
   end
-  counter = counter + 1
-  if counter > seq.length then
-    counter = 1
+  if enc3_direction ~= 3 then
+    counter = counter + 1
+    if counter > seq.length then
+      counter = 1
+    end
+  else
+    counter = random_note_ix
   end
   redraw()
 end
@@ -86,7 +96,7 @@ end
 function build_seq(note)
   new_seq = true
   seq[1] = 1
-  engine.hz(midi_to_hz(note))
+  if note ~= 0 then engine.hz(midi_to_hz(note)) end
   table.insert(temp_table, note)
   note_name = note
   counter_create = counter_create + 1
@@ -107,11 +117,11 @@ function redraw()
 
     screen.level(1)
     screen.move(0,10)
-    screen.text(div_names[enc1_val])
+    screen.text(div_names[enc1_div])
 
     screen.level(1)
-    screen.move(125,35)
-    screen.text_right(direction[enc3_shift_val])
+    screen.move(125,60)
+    screen.text_right(direction[enc3_direction])
 
     screen.level(1)
     screen.move(0,60)
@@ -134,8 +144,8 @@ function redraw()
     screen.font_size(8)
     screen.font_face(1) 
     screen.level(15)
-    screen.move(125,35)
-    screen.text_right(direction[enc3_shift_val])
+    screen.move(125,60)
+    screen.text_right(direction[enc3_direction])
 
     screen.font_face(3)
     screen.font_size(30)
@@ -193,15 +203,22 @@ end
 -- 4. Press a key and it will lock as if hold is still engaged.
 -- 5. Engage and Disengage Hold to fix
 
+enc2_val = 1
+
 function enc(n,z)
   if shift_func then
-    enc3_shift_val = util.clamp(enc3_shift_val + z*1,1,3)
+    -- manually wrapping - I think modulus could be used to clean this up
+    enc3_direction = util.clamp(enc3_direction + z*1, 0, enc3_direction_max_entries + 1)
+    if enc3_direction == 0 then enc3_direction = enc3_direction_max_entries end
+    if enc3_direction == enc3_direction_max_entries + 1 then enc3_direction = 1 end
   else
     if n==1 then
-      enc1_val = util.clamp(enc1_val + z*1,1,6)
-      print(enc1_val)
+      -- manually wrapping - I think modulus could be used to clean this up
+      enc1_div = util.clamp(enc1_div + z*1, 0, enc1_div_max_entries + 1)
+      if enc1_div == 0 then enc1_div = enc1_div_max_entries end
+      if enc1_div == enc1_div_max_entries + 1 then enc1_div = 1 end
     elseif n==2 then
-      -- enc2_val = util.clamp(enc2_val + z*1,0,10)
+      print('nothing yet')
     elseif n==3 then
       if z > 0 then
         mode = 'hold'
@@ -217,42 +234,43 @@ function enc(n,z)
   redraw()
 end 
 
+
 function key(n,z)
   if n==2 and z==1 then
     if mode == 'create' then
-      print('shift + k2')
+      -- print('shift + k2')
       build_seq(0)
-      -- TODO: Should this note tracker be moved elsewhere?
+      -- TODO: Should this note tracker business be moved elsewhere? 
+      -- I'm using it to track when multiple keys are held down at once 
+      -- so I know when all come up and I can release the sequence.
       note_on_tracker = note_on_tracker - 1
       if note_on_tracker == 0 then
         playing = false
       end
     else
-      print('k2')
+      -- print('k2')
     end
   elseif n==3 and z==1 then
+    prev_mode = mode -- save the mode that we're in when E3 was pressed down
     shift_func = true
-    if playing == true then playing = false end
     mode = 'create'
     new_seq = false
     temp_table = {}
     counter_create = 0
   elseif n==3 and z==0 then
     shift_func = false
-    mode = 'play'
+    mode = prev_mode -- switch back to the previous mode so the hold feature works
+    if mode == 'play' then playing = false end
+    if mode == 'hold' then playing = true end
     if new_seq == true then 
       seq:settable(temp_table)
       seq:reset()
       new_seq = false
       counter = 1
     end
-    -- print(temp_table[1])
   end
   redraw()
 end
-
-
-
 
 
 
