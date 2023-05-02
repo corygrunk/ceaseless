@@ -6,7 +6,7 @@
 -- enc2: TODO: Pattern
 -- enc3: TODO: Hold / Direction (Shift)
 -- key2: ->
--- key3: Create | TODO: Note lengths
+-- key3: Create | TODO: Blank notes and note lengths
 
 -- crow:
 -- out 1:
@@ -20,10 +20,11 @@ m = midi.connect() -- if no argument is provided, we default to port 1
 
 seq = s{0}
 shift_func = false
-enc1_val = 4
+enc1_val = 5
 enc3_shift_val = 1
 div = {1/32,1/16,1/8,1/4,1/2,1}
 div_names = {'1/32','1/16','1/8','1/4','1/2','1'}
+note_name = '--'
 offset = 60 -- this is the main note
 playing = false
 direction = {'→','←','~'}
@@ -66,10 +67,10 @@ function clock_tick()
 end
 
 function move_seq()
-  print(mode)
   local note = seq()
   if note ~= 0 then
     play_notes(note + offset - 60)
+    note_name = note + offset - 60
   end
   counter = counter + 1
   if counter > seq.length then
@@ -87,6 +88,7 @@ function build_seq(note)
   seq[1] = 1
   engine.hz(midi_to_hz(note))
   table.insert(temp_table, note)
+  note_name = note
   counter_create = counter_create + 1
   note_on_tracker = 1
   redraw()
@@ -110,6 +112,10 @@ function redraw()
     screen.level(1)
     screen.move(125,35)
     screen.text_right(direction[enc3_shift_val])
+
+    screen.level(1)
+    screen.move(0,60)
+    screen.text(note_name)
     
     if seq[1] == 0 and seq.length == 1 then
       screen.font_face(1)
@@ -136,6 +142,12 @@ function redraw()
     screen.level(15)
     screen.move(60,40)
     screen.text_center(seq[1] == 999999 and 0 or counter_create) -- NEED TO FIX
+
+    screen.font_face(1)
+    screen.font_size(8)
+    screen.level(1)
+    screen.move(0,60)
+    screen.text(note_name)
   end
   screen.update()
 end
