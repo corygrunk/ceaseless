@@ -35,8 +35,7 @@
 
 engine.name = 'PolyPerc'
 s = require 'sequins'
-m = midi.connect() -- if no argument is provided, we default to port 1
-
+tab = require('tabutil')
 
 seq = s{0}
 shift_func = false
@@ -58,23 +57,98 @@ new_seq = false
 temp_table = {}
 note_on_tracker = 0 -- using to track keypresses
 
+-- MIDI WIP STUFF - Not sure why this can't live in INIT?
+
+midi_device = {} -- container for connected midi devices
+midi_device_names = {}
+midi_target_in = 1
+midi_target_out = 1
+current_midi_in_channel = 1
+current_midi_out_channel = 1
+for i = 1,#midi.vports do -- query all ports
+  midi_device[i] = midi.connect(i) -- connect each device
+  local full_name =
+  table.insert(midi_device_names,"port "..i..": "..util.trim_string_to_width(midi_device[i].name,40)) -- register its name
+end
+
+-- midi in options
+params:add_separator("MIDI IN")
+params:add_option("device", "device", midi_device_names, 1)
+params:set_action("device", function(x) midi_target_in = x end)
+params:add{type = "number", id = "midi_in_channel", name = "midi in channel",
+  min = 1, max = 16, default = 1, action = function(value) current_midi_in_channel = value end}
+
+-- midi out options
+params:add_separator("MIDI OUT")
+params:add_option("device", "device", midi_device_names, 1)
+params:set_action("device", function(x) midi_target_out = x end)
+params:add{type = "number", id = "midi_out_channel", name = "midi out channel",
+  min = 1, max = 16, default = 1, action = function(value) current_midi_out_channel = value end}
+
+
 -- INIT
 function init()
   screen.level(15)
   screen.aa(0)
   screen.line_width(1)
-
   main_clock = clock.run(clock_tick)
 end
+
+-- MIDI WIP STUFF
+
+midi_device[midi_target_in].event = function(data)
+  local d = midi.to_msg(data)
+
+  if d.type == 'note_on' then
+    if mode == 'hold' then
+      offset = d.note
+      note_on_tracker = 1
+    end
+
+    if mode == 'play' then
+      note_on_tracker = note_on_tracker + 1
+      if note_on_tracker == 1 then
+        seq.ix = seq.length
+        counter = 0
+      end
+      offset = d.note
+      playing = true
+    end
+
+    if mode == 'create' then
+      build_seq(d.note)
+    end
+  end
+
+  if d.type == 'note_off' and mode ~= 'hold' then
+    note_on_tracker = note_on_tracker - 1
+    if note_on_tracker == 0 then
+      playing = false
+    end
+  end
+
+end
+
+
 
 function midi_to_hz(note)
   local hz = (440 / 32) * (2 ^ ((note - 9) / 12))
   return hz
 end
 
+prev_note = 0 -- used for turning notes off
+
 function play_notes(note)
+  -- not sure if I need this note off logic. hmmmm?
+  print('device: ' .. midi_target_out .. '     port: ' .. current_midi_out_channel)
+  if prev_note ~= 0 then
+    midi_device[midi_target_out]:note_off(prev_note, 100, current_midi_out_channel)
+  end
+  prev_note = note
+
   if note ~= 0 then
-    engine.hz(midi_to_hz(note))
+    -- engine.hz(midi_to_hz(note))
+    midi_device[midi_target_out]:note_on(note, 100, current_midi_out_channel)
   end
 end
 
@@ -120,7 +194,7 @@ end
 function build_seq(note)
   new_seq = true
   seq[1] = 1
-  if note ~= 0 then engine.hz(midi_to_hz(note)) end
+  if note ~= 0 then play_notes(note) end
   table.insert(temp_table, note)
   note_name = note
   counter_create = counter_create + 1
@@ -185,42 +259,6 @@ function redraw()
   end
   screen.update()
 end
-
-
-m.event = function(data)
-  local d = midi.to_msg(data)
-
-  if d.type == 'note_on' then
-    if mode == 'hold' then
-      offset = d.note
-      note_on_tracker = 1
-    end
-
-    if mode == 'play' then
-      note_on_tracker = note_on_tracker + 1
-      if note_on_tracker == 1 then
-        seq.ix = seq.length
-        counter = 0
-      end
-      offset = d.note
-      playing = true
-    end
-
-    if mode == 'create' then
-      build_seq(d.note)
-    end
-  end
-
-  if d.type == 'note_off' and mode ~= 'hold' then
-    note_on_tracker = note_on_tracker - 1
-    if note_on_tracker == 0 then
-      playing = false
-    end
-  end
-
-end
-
-
 
 function enc(n,z)
   if shift_func then
