@@ -37,68 +37,89 @@ engine.name = 'PolyPerc'
 s = require 'sequins'
 tab = require('tabutil')
 
-seq = s{0}
-shift_func = false
-enc1_div = 5
-enc1_div_max_entries = 6
-div = {1/32,1/16,1/8,1/4,1/2,1}
-div_names = {'1/32','1/16','1/8','1/4','1/2','1'}
-enc3_direction = 1
-enc3_direction_max_entries = 3
-direction = {'FWD','REV','RND'}
-note_name = '--'
-offset = 60 -- this is the main note
-playing = false
-counter = 0
-counter_create = 0
-mode = 'play' -- 'create' or 'play' or 'hold'
-prev_mode = mode
-new_seq = false
-temp_table = {}
-note_on_tracker = 0 -- using to track keypresses
-
--- MIDI WIP STUFF - Not sure why this can't live in INIT?
-
-midi_device = {} -- container for connected midi devices
-midi_device_names = {}
-midi_target_in = 1
-midi_target_out = 1
-current_midi_in_channel = 1
-current_midi_out_channel = 1
-for i = 1,#midi.vports do -- query all ports
-  midi_device[i] = midi.connect(i) -- connect each device
-  local full_name =
-  table.insert(midi_device_names,"port "..i..": "..util.trim_string_to_width(midi_device[i].name,40)) -- register its name
-end
-
--- midi in options
-params:add_separator("MIDI IN")
-params:add_option("device", "device", midi_device_names, 1)
-params:set_action("device", function(x) midi_target_in = x end)
-params:add{type = "number", id = "midi_in_channel", name = "midi in channel",
-  min = 1, max = 16, default = 1, action = function(value) current_midi_in_channel = value end}
-
--- midi out options
-params:add_separator("MIDI OUT")
-params:add_option("device", "device", midi_device_names, 1)
-params:set_action("device", function(x) midi_target_out = x end)
-params:add{type = "number", id = "midi_out_channel", name = "midi out channel",
-  min = 1, max = 16, default = 1, action = function(value) current_midi_out_channel = value end}
-
-
 -- INIT
 function init()
   screen.level(15)
   screen.aa(0)
   screen.line_width(1)
+
+  seq = s{0}
+  shift_func = false
+  enc1_div = 5
+  enc1_div_max_entries = 6
+  div = {1/32,1/16,1/8,1/4,1/2,1}
+  div_names = {'1/32','1/16','1/8','1/4','1/2','1'}
+  enc3_direction = 1
+  enc3_direction_max_entries = 3
+  direction = {'FWD','REV','RND'}
+  note_name = '--'
+  offset = 60 -- this is the main note
+  playing = false
+  counter = 0
+  counter_create = 0
+  mode = 'play' -- 'create' or 'play' or 'hold'
+  prev_mode = mode
+  new_seq = false
+  temp_table = {}
+  note_on_tracker = 0 -- using to track keypresses
+  prev_note = 0 -- used for turning MIDI notes off
+  midi_device = {} -- container for connected midi devices
+  midi_device_names = {}
+  midi_target_in = 1
+  midi_target_out = 2
+  current_midi_in_channel = 1
+  current_midi_out_channel = 1
+  selected_ouput = 1
+  for i = 1,#midi.vports do -- query all ports
+    midi_device[i] = midi.connect(i) -- connect each device
+    local full_name =
+    table.insert(midi_device_names,'port '..i..': '..util.trim_string_to_width(midi_device[i].name,40)) -- register its name
+  end
+
+  output_options = {'engine','MIDI','crow','jf'}
+
+  -- output options
+  params:add_separator('OUTS')
+  params:add{type = 'option', id = 'outs', name = 'outs',
+    options = output_options, default = 1, action = function(value) selected_ouput = value end}
+
+  -- midi in options
+  params:add_separator('MIDI IN')
+  params:add_option('device_in', 'device', midi_device_names, 1)
+  params:set_action('device_in', function(x) midi_target_in = x end)
+  params:add{type = 'number', id = 'midi_in_channel', name = 'midi in channel',
+    min = 1, max = 16, default = 1, action = function(value) current_midi_in_channel = value end}
+
+  -- midi out options
+  params:add_separator('MIDI OUT')
+  params:add_option('device_out', 'device', midi_device_names, 2)
+  params:set_action('device_out', function(x) midi_target_out = x end)
+  params:add{type = 'number', id = 'midi_out_channel', name = 'midi out channel',
+    min = 1, max = 16, default = 1, action = function(value) current_midi_out_channel = value end}
+
+  midi_device[midi_target_in].event = function(data) -- Handle MIDI in
+    midi_received(data)
+  end
+
   main_clock = clock.run(clock_tick)
 end
 
--- MIDI WIP STUFF
 
-midi_device[midi_target_in].event = function(data)
-  local d = midi.to_msg(data)
+-- MAIN CLOCK
+function clock_tick()
+  while true do
+    clock.tempo = tempo
+    clock.sync(div[enc1_div])
+    if playing then
+      move_seq()
+    end 
+  end
+end
 
+
+function midi_received(midi_event_data)
+  local d = midi.to_msg(midi_event_data)
+  
   if d.type == 'note_on' then
     if mode == 'hold' then
       offset = d.note
@@ -126,9 +147,7 @@ midi_device[midi_target_in].event = function(data)
       playing = false
     end
   end
-
 end
-
 
 
 function midi_to_hz(note)
@@ -136,32 +155,27 @@ function midi_to_hz(note)
   return hz
 end
 
-prev_note = 0 -- used for turning notes off
 
 function play_notes(note)
   -- not sure if I need this note off logic. hmmmm?
-  print('device: ' .. midi_target_out .. '     port: ' .. current_midi_out_channel)
-  if prev_note ~= 0 then
-    midi_device[midi_target_out]:note_off(prev_note, 100, current_midi_out_channel)
-  end
-  prev_note = note
-
-  if note ~= 0 then
-    -- engine.hz(midi_to_hz(note))
-    midi_device[midi_target_out]:note_on(note, 100, current_midi_out_channel)
-  end
-end
-
--- MAIN CLOCK
-function clock_tick()
-  while true do
-    clock.tempo = tempo
-    clock.sync(div[enc1_div])
-    if playing then
-      move_seq()
-    end 
+  if output_options[selected_ouput] == 'engine' then
+    engine.hz(midi_to_hz(note))
+  elseif output_options[selected_ouput] == 'MIDI' then
+    if prev_note ~= 0 then
+      midi_device[midi_target_out]:note_off(prev_note, 100, current_midi_out_channel)
+    end
+    prev_note = note
+  
+    if note ~= 0 then
+      midi_device[midi_target_out]:note_on(note, 100, current_midi_out_channel)
+    end
+  elseif output_options[selected_ouput] == 'crow' then
+    print('need to implement crow')
+  elseif output_options[selected_ouput] == 'jf' then
+    print('need to implement jf')
   end
 end
+
 
 function move_seq()
   if enc3_direction == 1 then seq:step(1) end -- forward
@@ -187,9 +201,11 @@ function move_seq()
   redraw()
 end
 
+
 function add_note(note)
   seq = s{note}
 end
+
 
 function build_seq(note)
   new_seq = true
@@ -259,6 +275,7 @@ function redraw()
   end
   screen.update()
 end
+
 
 function enc(n,z)
   if shift_func then
