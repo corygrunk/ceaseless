@@ -1,12 +1,36 @@
 --- ceaseless
---- shameless recreation of the OP1
+--- recreation of the OP1
 --- endless sequencer
 
--- enc1: Speed | TODO: Add triplets
+-- enc1: Speed
 -- enc2: TODO: Patterns
 -- enc3: Hold / Direction (Shift)
 -- key2: -> Add blank notes to pattern
--- key3: Create | TODO: note lengths
+-- key3: Create
+
+-- TODOS:
+-- Triplets
+-- Patterns (E2)
+-- Note Lengths during create
+-- Chords???
+
+----------------------
+-- BUGS BUGS BUGS
+----------------------
+-- MIDI
+-- 1. Start Ceaseless, then plug in MIDI controller
+-- 2. MIDI won't work
+----------------------
+-- SEQUENCE STOPS WHEN...
+-- 1. If you're holding a key and change the direction or engage/disengage hold, 
+-- the sequence stops when you release K3
+----------------------
+-- HOLD GETS STUCK IF YOU
+-- 1. Enter sequence
+-- 2. Engage Hold
+-- 3. Hold E3 and turn K3 (shift)
+-- 4. Press a key and it will lock as if hold is still engaged.
+-- 5. Engage and Disengage Hold to fix
 
 
 engine.name = 'PolyPerc'
@@ -18,14 +42,14 @@ seq = s{0}
 shift_func = false
 enc1_div = 5
 enc1_div_max_entries = 6
-enc3_direction = 1
-enc3_direction_max_entries = 3
 div = {1/32,1/16,1/8,1/4,1/2,1}
 div_names = {'1/32','1/16','1/8','1/4','1/2','1'}
+enc3_direction = 1
+enc3_direction_max_entries = 3
+direction = {'FWD','REV','RND'}
 note_name = '--'
 offset = 60 -- this is the main note
 playing = false
-direction = {'FWD','REV','RND'}
 counter = 0
 counter_create = 0
 mode = 'play' -- 'create' or 'play' or 'hold'
@@ -196,14 +220,7 @@ m.event = function(data)
 
 end
 
--- BUG: HOLD GETS STUCK IF YOU
--- 1. Enter sequence
--- 2. Engage Hold
--- 3. Hold E3 and turn K3 (shift)
--- 4. Press a key and it will lock as if hold is still engaged.
--- 5. Engage and Disengage Hold to fix
 
-enc2_val = 1
 
 function enc(n,z)
   if shift_func then
@@ -213,10 +230,7 @@ function enc(n,z)
     if enc3_direction == enc3_direction_max_entries + 1 then enc3_direction = 1 end
   else
     if n==1 then
-      -- manually wrapping - I think modulus could be used to clean this up
-      enc1_div = util.clamp(enc1_div + z*1, 0, enc1_div_max_entries + 1)
-      if enc1_div == 0 then enc1_div = enc1_div_max_entries end
-      if enc1_div == enc1_div_max_entries + 1 then enc1_div = 1 end
+      enc1_div = util.clamp(enc1_div + z*1, 1, enc1_div_max_entries)
     elseif n==2 then
       print('nothing yet')
     elseif n==3 then
